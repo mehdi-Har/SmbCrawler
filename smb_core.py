@@ -29,9 +29,14 @@ INTERESTING_FILES = {
     ]
 }
 
-def is_interesting_file(filename):
+def is_interesting_file(filename , search_pattern=None):
     """Check if a file matches interesting patterns"""
     filename_lower = filename.lower()
+    if search_pattern:
+        if search_pattern.lower() in filename_lower:
+            return ['search_match']
+        else:
+            return []
     matches = []
     for category, patterns in INTERESTING_FILES.items():
         for pattern in patterns:
@@ -46,7 +51,7 @@ def should_skip_share(share_name, skip_system=True):
         return False
     return share_name.upper() in [s.upper() for s in SYSTEM_SHARES]
 
-def crawl_share(connection, share_name, path="", level=0, max_level=3, timeout=10):
+def crawl_share(connection, share_name, path="", level=0, max_level=3, timeout=10 , search_filename=None):
     """Recursively crawl a share looking for interesting files"""
     interesting_finds = []
     if level > max_level:
@@ -64,12 +69,12 @@ def crawl_share(connection, share_name, path="", level=0, max_level=3, timeout=1
                 if level < max_level:
                     sub_finds = crawl_share(
                         connection, share_name, full_path, 
-                        level + 1, max_level, timeout
+                        level + 1, max_level, timeout, search_filename
                     )
                     interesting_finds.extend(sub_finds)
             else:
-                categories = is_interesting_file(file_info.filename)
-                if categories:
+                categories = is_interesting_file(file_info.filename , search_filename)
+                if categories or not search_filename:
                     file_size = file_info.file_size
                     size_str = format_file_size(file_size)
                     print(f"{indent}  [FILE] {file_info.filename} ({size_str}) [INTERESTING: {', '.join(categories).upper()}]")

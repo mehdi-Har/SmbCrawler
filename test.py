@@ -40,7 +40,7 @@ def test_smb_connectivity(target, username, password, domain="", port=445, timeo
         return False
 
 def crawl_multiple_targets(targets, username, password, domain="", port=445, timeout=10, 
-                          drill_level=0, skip_system=True, download_files=False, extract_creds=False):
+                          drill_level=0, skip_system=True, download_files=False, extract_creds=False , search_filename=None):
     """Crawl SMB shares on multiple targets"""
     results = []
     successful_targets = []
@@ -87,7 +87,8 @@ def crawl_multiple_targets(targets, username, password, domain="", port=445, tim
             drill_level=drill_level,
             skip_system=skip_system,
             download_files=download_files,
-            extract_creds=extract_creds
+            extract_creds=extract_creds,
+            search_filename=search_filename
         )
         
         if success:
@@ -106,7 +107,7 @@ def crawl_multiple_targets(targets, username, password, domain="", port=445, tim
     print("=" * 70)
     
     return results
-def list_smb_shares(target, username, password, domain="", port=445, timeout=10, drill_level=0, skip_system=True, download_files=False, extract_creds=False):
+def list_smb_shares(target, username, password, domain="", port=445, timeout=10, drill_level=0, skip_system=True, download_files=False, extract_creds=False , search_filename=None):
     """Connect to SMB server, list shares, and optionally crawl them"""
     try:
         connection = SMBConnection(
@@ -176,7 +177,7 @@ def list_smb_shares(target, username, password, domain="", port=445, timeout=10,
                 print("-" * 40)
                 
                 interesting_files = crawl_share(
-                    connection, share_name, "", 0, drill_level, timeout
+                    connection, share_name, "", 0, drill_level, timeout , search_filename
                 )
                 all_interesting_files.extend(interesting_files)
             
@@ -310,6 +311,9 @@ Drill Levels:
                        help='Extract credentials from downloaded files')
     parser.add_argument('--use-dc-ip', action='store_true',
                    help='Use domain controller IP as base for computer IPs (when DNS fails)')
+    # In the argument parser section, add this line:
+    parser.add_argument('--filename', 
+                   help='Search for files containing this string (case-insensitive)')
     args = parser.parse_args()
     
     # Validation
@@ -439,7 +443,8 @@ Drill Levels:
             drill_level=args.level,
             skip_system=not args.include_system,
             download_files=args.download,
-            extract_creds=args.extract_creds
+            extract_creds=args.extract_creds,
+            search_filename=args.filename
         )
         
         success = any(result['success'] for result in results)
@@ -460,7 +465,8 @@ Drill Levels:
             drill_level=args.level,
             skip_system=not args.include_system,
             download_files=args.download,
-            extract_creds=args.extract_creds
+            extract_creds=args.extract_creds,
+            search_filename=args.filename
         )
     
     sys.exit(0 if success else 1)
