@@ -24,12 +24,21 @@ from adEnum import *
 def test_smb_connectivity(target, username, password, domain="", port=445, timeout=5):
     """Quick test if SMB is accessible on target"""
     try:
-        connection = SMBConnection(
-            username, password, "SMBScanner", target,
-            domain=domain, use_ntlm_v2=True,
-            sign_options=SMBConnection.SIGN_WHEN_SUPPORTED,
-            is_direct_tcp=True
-        )
+        if not username and not password:
+            # Anonymous mode
+            connection = SMBConnection(
+                '', '', "SMBScanner", target,
+                domain=domain, use_ntlm_v2=True,
+                sign_options=SMBConnection.SIGN_WHEN_SUPPORTED,
+                is_direct_tcp=True
+            )
+        else:
+            connection = SMBConnection(
+                username, password, "SMBScanner", target,
+                domain=domain, use_ntlm_v2=True,
+                sign_options=SMBConnection.SIGN_WHEN_SUPPORTED,
+                is_direct_tcp=True
+            )
         
         connected = connection.connect(target, port, timeout=timeout)
         if connected:
@@ -40,7 +49,7 @@ def test_smb_connectivity(target, username, password, domain="", port=445, timeo
         return False
 
 def crawl_multiple_targets(targets, username, password, domain="", port=445, timeout=10, 
-                          drill_level=0, skip_system=True, download_files=False, extract_creds=False , search_filename=None):
+                          drill_level=0, skip_system=True, download_files=False, extract_creds=False, search_filename=None, keyword=None):
     """Crawl SMB shares on multiple targets"""
     results = []
     successful_targets = []
@@ -88,7 +97,8 @@ def crawl_multiple_targets(targets, username, password, domain="", port=445, tim
             skip_system=skip_system,
             download_files=download_files,
             extract_creds=extract_creds,
-            search_filename=search_filename
+            search_filename=search_filename,
+            keyword=keyword  # Add this line
         )
         
         if success:
@@ -107,22 +117,32 @@ def crawl_multiple_targets(targets, username, password, domain="", port=445, tim
     print("=" * 70)
     
     return results
-def list_smb_shares(target, username, password, domain="", port=445, timeout=10, drill_level=0, skip_system=True, download_files=False, extract_creds=False , search_filename=None):
+def list_smb_shares(target, username, password, domain="", port=445, timeout=10, drill_level=0, skip_system=True, download_files=False, extract_creds=False, search_filename=None, keyword=None):
     """Connect to SMB server, list shares, and optionally crawl them"""
     try:
-        connection = SMBConnection(
-            username, 
-            password, 
-            "SMBCrawler",
-            target,
-            domain=domain,
-            use_ntlm_v2=True,
-            sign_options=SMBConnection.SIGN_WHEN_SUPPORTED,
-            is_direct_tcp=True
-        )
+        if not username and not password:
+            # Anonymous mode
+            connection = SMBConnection(
+                '', '', "SMBCrawler", target,
+                domain=domain, use_ntlm_v2=True,
+                sign_options=SMBConnection.SIGN_WHEN_SUPPORTED,
+                is_direct_tcp=True
+            )
+        else:
+            connection = SMBConnection(
+                username, 
+                password, 
+                "SMBCrawler",
+                target,
+                domain=domain,
+                use_ntlm_v2=True,
+                sign_options=SMBConnection.SIGN_WHEN_SUPPORTED,
+                is_direct_tcp=True
+            )
         
         print(f"[*] Connecting to {target}:{port}...")
-        
+        if not username and not password:
+            print("[*] Running in anonymous mode (no authentication)")
         connected = connection.connect(target, port, timeout=timeout)
         
         if not connected:
@@ -177,7 +197,7 @@ def list_smb_shares(target, username, password, domain="", port=445, timeout=10,
                 print("-" * 40)
                 
                 interesting_files = crawl_share(
-                    connection, share_name, "", 0, drill_level, timeout , search_filename
+                    connection, share_name, "", 0, drill_level, timeout, search_filename, keyword
                 )
                 all_interesting_files.extend(interesting_files)
             
@@ -186,20 +206,35 @@ def list_smb_shares(target, username, password, domain="", port=445, timeout=10,
                 print(f"[+] SUMMARY: Found {len(all_interesting_files)} interesting files:")
                 print("=" * 70)
                 
-                by_category = {}
+                # Group files by their full path to avoid duplicates
+                unique_files = {}
                 for file_info in all_interesting_files:
-                    for category in file_info['categories']:
-                        if category not in by_category:
-                            by_category[category] = []
-                        by_category[category].append(file_info)
+                    file_key = f"{file_info['share']}{file_info['path']}"
+                    if file_key not in unique_files:
+                        unique_files[file_key] = file_info
+                    else:
+                        # Merge categories if somehow we have duplicates
+                        existing_categories = set(unique_files[file_key]['categories'])
+                        new_categories = set(file_info['categories'])
+                        unique_files[file_key]['categories'] = list(existing_categories.union(new_categories))
                 
-                for category, files in by_category.items():
-                    print(f"\n[{category.upper()}] ({len(files)} files):")
-                    for file_info in files:
-                        size_str = format_file_size(file_info['size'])
-                        print(f"  - {file_info['share']}{file_info['path']} ({size_str})")
+                # Display each unique file with all its categories
+                for file_key, file_info in unique_files.items():
+                    size_str = format_file_size(file_info['size'])
+                    categories_str = ', '.join(cat.upper() for cat in file_info['categories']) if file_info['categories'] else 'SEARCH MATCH'
+                    print(f"  - {file_info['share']}{file_info['path']} ({size_str}) [{categories_str}]")
                 
-                # Download and analyze files
+                print(f"\n[+] Total unique files: {len(unique_files)}")
+                
+                # Optional: Show category breakdown
+                all_categories = set()
+                for file_info in unique_files.values():
+                    all_categories.update(file_info['categories'])
+                
+                if all_categories:
+                    print(f"[+] Categories found: {', '.join(sorted(all_categories)).upper()}")
+                
+                # Download and analyze files - FIXED VERSION
                 all_credentials = []
                 if download_files or extract_creds:
                     print(f"\n[*] Downloading and analyzing interesting files...")
@@ -207,6 +242,10 @@ def list_smb_shares(target, username, password, domain="", port=445, timeout=10,
                     os.makedirs(download_dir, exist_ok=True)
                     
                     for file_info in all_interesting_files:
+                        # Only download files that actually matched interesting categories
+                        if not file_info['categories']:  # Skip files with no interesting categories
+                            continue
+                            
                         if file_info['size'] < 10 * 1024 * 1024:  # Only files < 10MB
                             safe_filename = re.sub(r'[<>:"/\\|?*]', '_', file_info['filename'])
                             local_path = os.path.join(download_dir, f"{file_info['share']}_{safe_filename}")
@@ -233,9 +272,13 @@ def list_smb_shares(target, username, password, domain="", port=445, timeout=10,
                     
                     print(f"\n[+] Downloaded files saved to: {download_dir}")
                     
-                    # Print credential summary
+                    # Print credential summary - only show actual credential pairs
                     if all_credentials:
-                        print_credentials_summary(all_credentials)
+                        actual_creds = [cred for cred in all_credentials if cred.get('type') == 'credential_pair']
+                        if actual_creds:
+                            print_credentials_summary(actual_creds)
+                        else:
+                            print(f"\n[*] No valid credential pairs extracted from downloaded files")
                     elif extract_creds:
                         print(f"\n[*] No credentials extracted from downloaded files")
             else:
@@ -289,10 +332,10 @@ Drill Levels:
                        help='Use LDAPS (SSL) for AD connection')
     
     # Authentication
-    parser.add_argument('-u', '--username', required=True,
-                       help='Username for authentication')
-    parser.add_argument('-p', '--password', required=True,
-                       help='Password for authentication (use "" for blank)')
+    parser.add_argument('-u', '--username', default='',
+                       help='Username for authentication (leave empty for anonymous)')
+    parser.add_argument('-p', '--password', default='',
+                       help='Password for authentication (use "" for blank or while using the aninymous mode)')
     parser.add_argument('-d', '--domain', default='',
                        help='Domain name (optional)')
     
@@ -314,6 +357,9 @@ Drill Levels:
     # In the argument parser section, add this line:
     parser.add_argument('--filename', 
                    help='Search for files containing this string (case-insensitive)')
+    parser.add_argument('--keyword', 
+                   help='Search for this keyword inside files (case-insensitive)')
+    
     args = parser.parse_args()
     
     # Validation
@@ -324,7 +370,11 @@ Drill Levels:
     if args.ad_enum and not args.domain_controller:
         print("[-] Error: --domain-controller required when using --ad-enum")
         sys.exit(1)
-    
+    anonymous_mode = not args.username and not args.password
+    if anonymous_mode:
+        print("[*] Running in anonymous mode (no authentication)")
+        args.username = ''
+        args.password = ''
     print(f"SMB Share Crawler with AD Enumeration - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Username: {args.username}")
     print(f"Domain: {args.domain if args.domain else '(local)'}")
@@ -444,7 +494,8 @@ Drill Levels:
             skip_system=not args.include_system,
             download_files=args.download,
             extract_creds=args.extract_creds,
-            search_filename=args.filename
+            search_filename=args.filename,
+            keyword=args.keyword  # Add this line
         )
         
         success = any(result['success'] for result in results)
@@ -466,7 +517,8 @@ Drill Levels:
             skip_system=not args.include_system,
             download_files=args.download,
             extract_creds=args.extract_creds,
-            search_filename=args.filename
+            search_filename=args.filename,
+            keyword=args.keyword  # Add this line
         )
     
     sys.exit(0 if success else 1)

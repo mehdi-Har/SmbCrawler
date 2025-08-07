@@ -1,2 +1,0 @@
-username: mehdi
-password: password

@@ -1,4 +1,5 @@
 import socket
+import struct
 try:
     from ldap3 import Server, Connection, ALL, SUBTREE
     LDAP_AVAILABLE = True
