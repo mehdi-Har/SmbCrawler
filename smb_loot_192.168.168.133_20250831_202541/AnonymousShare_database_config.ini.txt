@@ -1,7 +1,7 @@
 # Test File 1: database_config.ini
-[database]
+ftp
 host = 192.168.1.100
 port = 3306
-username = db_admin
-password = MySqlP@ss123!
+username = ftpuser
+password = P@ssw0rd!
 database = production_db

@@ -434,6 +434,23 @@ def analyze_file_for_credentials(file_path, share_name, remote_path):
         if file_ext in ['.xlsx', '.xlsm']:
             print(f"  [+] Extracting credentials from Excel file")
             credentials = extract_credentials_from_xlsx(file_path)
+            
+            # For XLSX, we need to read content differently to extract targets
+            # Read as binary and convert what we can to text for target extraction
+            try:
+                import openpyxl
+                workbook = openpyxl.load_workbook(file_path, data_only=True)
+                all_text = ""
+                for sheet_name in workbook.sheetnames:
+                    sheet = workbook[sheet_name]
+                    for row in sheet.iter_rows(values_only=True):
+                        for cell in row:
+                            if cell:
+                                all_text += str(cell) + " "
+                workbook.close()
+                potential_targets = extract_potential_targets_from_content(all_text)
+            except:
+                potential_targets = []
         else:
             # Original text-based extraction
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -441,6 +458,9 @@ def analyze_file_for_credentials(file_path, share_name, remote_path):
             
             if not content.strip():
                 return []
+            
+            # Extract potential targets from content
+            potential_targets = extract_potential_targets_from_content(content)
             
             if file_ext in ['.txt', '.log', '.conf', '.cfg', '.ini', '.sh', '.bash', '.zsh', '.properties', '.env', '.config']:
                 print(f"  [+] Extracting credentials from text file")
@@ -453,10 +473,44 @@ def analyze_file_for_credentials(file_path, share_name, remote_path):
         print(f"  [-] Error reading {file_path}: {str(e)}")
         return []
     
-    # Add file information to each credential
+    # Add file information and potential targets to each credential
     for cred in credentials:
         cred['file_path'] = file_path
         cred['share_name'] = share_name
         cred['remote_path'] = remote_path
+        cred['potential_targets'] = potential_targets
     
     return credentials
+def extract_potential_targets_from_content(file_content):
+    """Extract potential target hosts/IPs from file content"""
+    targets = set()
+    
+    # IP address pattern
+    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+    
+    # Hostname patterns
+    hostname_pattern = r'\b[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\b'
+    
+    # URL patterns with embedded hosts
+    url_patterns = [
+        r'(?i)(?:ssh|ftp|ftps|sftp)://([^:/\s]+)',
+        r'(?i)host\s*[:=]\s*([^\s\n\r;,]+)',
+        r'(?i)server\s*[:=]\s*([^\s\n\r;,]+)',
+        r'(?i)hostname\s*[:=]\s*([^\s\n\r;,]+)',
+    ]
+    
+    # Find IPs
+    for match in re.finditer(ip_pattern, file_content):
+        ip = match.group()
+        # Skip local/invalid IPs
+        if not ip.startswith(('127.', '0.', '255.')):
+            targets.add(ip)
+    
+    # Find URLs with hosts
+    for pattern in url_patterns:
+        for match in re.finditer(pattern, file_content):
+            host = match.group(1).strip()
+            if host and '.' in host and not host.replace('.', '').isdigit():
+                targets.add(host)
+    
+    return list(targets)
